@@ -35,6 +35,7 @@ export default function DashboardOverview({ stats }: DashboardOverviewProps) {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" />
               <YAxis />
+              {/* @ts-ignore */}
               <Tooltip formatter={(value: any) => `Rp ${Number(value || 0).toLocaleString("id-ID")}`} />
               <Legend />
               <Bar dataKey="Pemasukan" fill="#10b981" />
