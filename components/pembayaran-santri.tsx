@@ -224,7 +224,7 @@ export default function PembayaranSantri({ onUpdate }: PembayaranSantriProps) {
     setEditingId(null)
   }
 
-  function sendWhatsApp(pembayaran: Pembayaran) {
+  function sendWhatsApp(pembayaran: any) {
     const santri = pembayaran.santri
     if (!santri) return
     let phoneNumber = santri.no_hp_wali
