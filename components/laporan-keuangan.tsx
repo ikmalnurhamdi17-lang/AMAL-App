@@ -279,7 +279,7 @@ export default function LaporanKeuangan({ onUpdate }: LaporanKeuanganProps) {
                         <SelectTrigger className="w-[140px] h-8 text-xs font-bold border-blue-200"><SelectValue /></SelectTrigger>
                         <SelectContent>{BULAN_NAMES.map((b, i) => <SelectItem key={i} value={(i+1).toString()}>{b}</SelectItem>)}</SelectContent>
                     </Select>
-                    <Input type="number" className="w-[100px] h-8 text-xs font-bold border-blue-200" value={filterTahun} onChange={(e) => setTahun(e.target.value)} />
+                    <Input type="number" className="w-[100px] h-8 text-xs font-bold border-blue-200" value={filterTahun} onChange={(e) => setFilterTahun(e.target.value)} />
                     <Button size="sm" onClick={cetakMutasi} className="bg-blue-600 hover:bg-blue-700 h-8 text-[10px] font-bold">
                         <FileDown className="w-3.5 h-3.5 mr-1.5" /> Cetak E-Statement
                     </Button>
