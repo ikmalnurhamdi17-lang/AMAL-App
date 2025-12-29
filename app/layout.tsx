@@ -2,8 +2,13 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Pesantren financial app',
-  description: 'Generated with BLACKBOX AI Builder',
+  title: 'AMAL Application',
+  description: 'Aplikasi Manajemen Keuangan Pesantren',
+  manifest: '/manifest.json',
+  icons: {
+    icon: '/Amal.png',
+    apple: '/Amal.png',
+  },
 }
 
 export default function RootLayout({
@@ -13,6 +18,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <meta name="theme-color" content="#1e40af" />
+      </head>
       <body>{children}</body>
     </html>
   )
