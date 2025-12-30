@@ -1,10 +1,8 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandList, CommandItem } from "@/components/ui/command"
-import { Check, ChevronsUpDown, Plus, Send, Search, ReceiptJapaneseYen, Pencil, Trash2, Printer } from "lucide-react"
+import { useState, useEffect, useCallback, useMemo } from "react"
+import { Plus, Send, Search, ReceiptJapaneseYen, Pencil, Trash2, Printer, CalendarDays, Filter, User, Check } from "lucide-react"
 import { cn, simpanLog } from "@/lib/utils" 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -22,10 +20,6 @@ import { jsPDF } from "jspdf"
 import autoTable from "jspdf-autotable"
 import Swal from "sweetalert2"
 import QRCode from "qrcode"
-
-interface PembayaranSantriProps {
-  onUpdate: () => void
-}
 
 const BULAN_NAMES = [
   "Januari", "Februari", "Maret", "April", "Mei", "Juni",
@@ -49,31 +43,34 @@ const getBase64ImageFromURL = (url: string): Promise<string> => {
   })
 }
 
-export default function PembayaranSantri({ onUpdate }: PembayaranSantriProps) {
+export default function PembayaranSantri({ onUpdate }: { onUpdate: () => void }) {
   const [santriList, setSantriList] = useState<Santri[]>([])
   const [pembayaranList, setPembayaranList] = useState<any[]>([])
   const [tarif, setTarif] = useState<any>({})
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [openCombobox, setOpenCombobox] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  
+  // State Pencarian Santri di Form
+  const [santriSearchQuery, setSantriSearchQuery] = useState("")
+  const [selectedSantriObj, setSelectedSantriObj] = useState<Santri | null>(null)
 
+  // State Multi-Bulan
+  const [selectedBulans, setSelectedBulans] = useState<number[]>([new Date().getMonth() + 1])
+  const [formData, setFormData] = useState({
+    santri_id: "",
+    tahun: new Date().getFullYear(),
+    bayar_dapur: true,
+    bayar_syahriah_pesantren: true,
+    bayar_syahriah_sekolah: true,
+    keterangan: "",
+  })
+
+  // State Filter Tabel
   const [searchNama, setSearchNama] = useState("")
   const [filterBulan, setFilterBulan] = useState("all")
   const [filterTahun, setFilterTahun] = useState(new Date().getFullYear().toString())
 
-  const [formData, setFormData] = useState({
-    santri_id: "",
-    bulan: new Date().getMonth() + 1,
-    tahun: new Date().getFullYear(),
-    bayar_dapur: false,
-    bayar_syahriah_pesantren: false,
-    bayar_syahriah_sekolah: false,
-    keterangan: "",
-  })
-
-  useEffect(() => {
-    loadData()
-  }, [])
+  useEffect(() => { loadData() }, [])
 
   async function loadData() {
     const supabase = getSupabase()
@@ -88,129 +85,141 @@ export default function PembayaranSantri({ onUpdate }: PembayaranSantriProps) {
     setTarif(tarifObj)
   }
 
+  // Memoized Filtered Santri untuk performa cepat saat mengetik
+  const filteredSantriOptions = useMemo(() => {
+    return santriList.filter(s => 
+      s.nama.toLowerCase().includes(santriSearchQuery.toLowerCase()) ||
+      s.nis.toLowerCase().includes(santriSearchQuery.toLowerCase())
+    )
+  }, [santriList, santriSearchQuery])
+
+  const toggleBulan = useCallback((bulanIdx: number) => {
+    setSelectedBulans(prev => 
+      prev.includes(bulanIdx) ? prev.filter(b => b !== bulanIdx) : [...prev, bulanIdx]
+    )
+  }, [])
+
   const cetakKwitansi = async (p: any) => {
     const doc = new jsPDF({ format: [80, 150], unit: "mm" })
     const pageWidth = doc.internal.pageSize.getWidth()
-
+    
     try {
+      // 1. Header & Logo
       try {
         const imgData = await getBase64ImageFromURL("/logoo.png")
         doc.addImage(imgData, "PNG", 8, 6, 12, 12)
-        doc.setFontSize(10).setFont("helvetica", "bold")
-        doc.text("PONPES AL - HUDA TURALAK", 22, 10)
-        doc.setFontSize(7).setFont("helvetica", "normal")
-        doc.text("Bukti Pembayaran Syahriah (AMAL)", 22, 14)
-        doc.setFontSize(8).setFont("helvetica", "bold")
+        doc.setFontSize(10).setFont("helvetica", "bold").text("PONPES AL - HUDA TURALAK", 22, 10)
+        doc.setFontSize(7).setFont("helvetica", "normal").text("Bukti Pembayaran Syahriah (AMAL)", 22, 14)
       } catch (e) {
-        doc.setFontSize(10).setFont("helvetica", "bold")
-        doc.text("PONPES AL - HUDA TURALAK", pageWidth / 2, 10, { align: "center" })
+        doc.setFontSize(10).setFont("helvetica", "bold").text("AL - HUDA TURALAK", pageWidth / 2, 10, { align: "center" })
       }
 
-      doc.setLineWidth(0.5)
-      doc.line(8, 22, 72, 22)
-
-      const santri = p.santri
-      const tanggal = new Date(p.tanggal_bayar).toLocaleDateString("id-ID", { day: '2-digit', month: 'long', year: 'numeric' })
-
+      doc.setLineWidth(0.5).line(8, 22, 72, 22)
+      
+      // 2. Info Santri
       doc.setFontSize(8).setFont("helvetica", "normal")
-      doc.text(`Tanggal : ${tanggal}`, 8, 28)
-      doc.text(`Nama    : ${santri?.nama}`, 8, 33)
-      doc.text(`Ref ID  : #PAY-${p.id.slice(0, 8).toUpperCase()}`, 8, 38)
-      doc.text(`Periode : ${BULAN_NAMES[p.bulan - 1]} ${p.tahun}`, 8, 43)
+      doc.text(`Nama   : ${p.santri?.nama}`, 8, 30)
+      doc.text(`Periode: ${BULAN_NAMES[p.bulan - 1]} ${p.tahun}`, 8, 35)
+      doc.text(`Tanggal: ${new Date(p.tanggal_bayar).toLocaleDateString("id-ID")}`, 8, 40)
 
+      // 3. Tabel Rincian
       const body = []
-      if (p.bayar_dapur > 0) body.push(["Uang Dapur", `Rp ${p.bayar_dapur.toLocaleString("id-ID")}`])
-      if (p.bayar_syahriah_pesantren > 0) body.push(["Syahriah Pesantren", `Rp ${p.bayar_syahriah_pesantren.toLocaleString("id-ID")}`])
-      if (p.bayar_syahriah_sekolah > 0) body.push(["Syahriah Sekolah", `Rp ${p.bayar_syahriah_sekolah.toLocaleString("id-ID")}`])
+      if (p.bayar_dapur > 0) body.push(["Dapur", `Rp ${p.bayar_dapur.toLocaleString()}`])
+      if (p.bayar_syahriah_pesantren > 0) body.push(["Pesantren", `Rp ${p.bayar_syahriah_pesantren.toLocaleString()}`])
+      if (p.bayar_syahriah_sekolah > 0) body.push(["Sekolah", `Rp ${p.bayar_syahriah_sekolah.toLocaleString()}`])
 
       autoTable(doc, {
-        startY: 47,
-        theme: 'plain',
-        margin: { left: 8, right: 8 },
-        styles: { fontSize: 8, cellPadding: 1, font: "helvetica" },
-        body: body,
-        columnStyles: { 1: { halign: 'right' } }
+        startY: 45, theme: 'plain', margin: { left: 8, right: 8 },
+        styles: { fontSize: 8, cellPadding: 1 },
+        body: body, columnStyles: { 1: { halign: 'right' } }
       })
 
+      // 4. Total Bayar
       const finalY = (doc as any).lastAutoTable.finalY + 2
-      doc.setLineWidth(0.2)
-      doc.line(8, finalY, 72, finalY)
-      doc.setFont("helvetica", "bold").setFontSize(9)
-      doc.text("TOTAL BAYAR:", 8, finalY + 6)
-      doc.text(`Rp ${p.total_bayar.toLocaleString("id-ID")}`, 72, finalY + 6, { align: "right" })
+      doc.setFont("helvetica", "bold").text("TOTAL:", 8, finalY + 5)
+      doc.text(`Rp ${p.total_bayar.toLocaleString()}`, 72, finalY + 5, { align: "right" })
 
-      const qrText = `BUKTI SAH: ${santri?.nama}\nPeriode: ${BULAN_NAMES[p.bulan - 1]} ${p.tahun}\nTotal: Rp ${p.total_bayar.toLocaleString("id-ID")}\nSTATUS: LUNAS`
+      // 5. QR Code
+      const qrSize = 25
+      const qrX = (pageWidth / 2) - (qrSize / 2)
+      const qrY = finalY + 10
+      const qrText = `SAH: ${p.santri?.nama} | Rp ${p.total_bayar.toLocaleString()} | ${p.bulan}/${p.tahun}`
       const qrBase64 = await QRCode.toDataURL(qrText, { margin: 1 })
-      doc.addImage(qrBase64, "PNG", (pageWidth / 2) - 10, finalY + 12, 20, 20)
-      
-      doc.setFont("helvetica", "italic").setFontSize(7).setTextColor(100)
-      doc.text("Simpan bukti pembayaran ini sebagai tanda terima sah.", pageWidth / 2, finalY + 36, { align: "center" })
-      doc.text("Jazakumullah Khairan Katsiran.", pageWidth / 2, finalY + 40, { align: "center" })
+      doc.addImage(qrBase64, "PNG", qrX, qrY, qrSize, qrSize)
 
-      await simpanLog("CETAK_KWITANSI", `Cetak kwitansi: ${santri?.nama}`)
-      doc.save(`Kwitansi_${santri?.nama}.pdf`)
-    } catch (error) {
-      Swal.fire("Error", "Gagal cetak PDF", "error")
+      // 6. Teks Tambahan (Italic & Center)
+      const textYStart = qrY + qrSize + 5
+      doc.setFont("helvetica", "italic").setFontSize(7)
+      
+      doc.text("-- Scan Untuk Verifikasi Data --", pageWidth / 2, textYStart, { align: "center" })
+      doc.text("-- Jazakumullah Khairan Katsiran --", pageWidth / 2, textYStart + 4, { align: "center" })
+      doc.text("-- Dokumen Sah AMAL-App --", pageWidth / 2, textYStart + 8, { align: "center" })
+
+      // Simpan File
+      doc.save(`Kwitansi_${p.santri?.nama.replace(/\s+/g, '_')}.pdf`)
+    } catch (error) { 
+      console.error(error)
+      Swal.fire("Error", "Gagal mencetak kwitansi", "error") 
     }
+  }
+
+  const sendWhatsApp = (p: any) => {
+    const phone = p.santri?.no_hp_wali?.replace(/\D/g, "")
+    if (!phone) return Swal.fire("Error", "No HP Wali Kosong", "error")
+    const fixedPhone = phone.startsWith("0") ? "62" + phone.substring(1) : phone
+    const msg = `*BUKTI PEMBAYARAN*%0A*Ponpes Al - Huda Turalak*%0A%0AAlhamdulillah, diterima pembayaran: *${p.santri?.nama}*%0APeriode: ${BULAN_NAMES[p.bulan-1]} ${p.tahun}%0ATotal: Rp ${p.total_bayar.toLocaleString()}%0AJazakumullah Khairan Katsiran.`
+    window.open(`https://wa.me/${fixedPhone}?text=${msg}`, "_blank")
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!formData.santri_id) return
+    if (!formData.santri_id || selectedBulans.length === 0) return
+
     const supabase = getSupabase()
     const santri = santriList.find((s) => s.id === formData.santri_id)
     if (!santri) return
 
-    let tarifSekolah = 0
-    const jenjang = santri.jenjang?.toUpperCase()
-    if (jenjang === "SMP") tarifSekolah = tarif.syahriah_sekolah_smp || 0
-    else if (jenjang === "SMK") tarifSekolah = tarif.syahriah_sekolah_smk || 0
-    else if (jenjang === "KULIAH") tarifSekolah = tarif.syahriah_sekolah_kuliah || 0
-    else if (jenjang === "TAKHOSUS") tarifSekolah = tarif.syahriah_sekolah_takhosus || 0
+    let tSekolah = 0
+    const j = santri.jenjang?.toLowerCase()
+    if (j === "smk") tSekolah = tarif.syahriah_sekolah_smk || 0
+    else if (j === "takhosus") tSekolah = tarif.syahriah_sekolah_takhosus || 0
+    else if (j === "kuliah") tSekolah = tarif.syahriah_sekolah_kuliah || 0
+    else tSekolah = tarif.syahriah_sekolah_smp || 0
 
-    const payload = {
-      santri_id: formData.santri_id,
-      bulan: formData.bulan,
-      tahun: formData.tahun,
-      bayar_dapur: formData.bayar_dapur ? (tarif.dapur || 0) : 0,
-      bayar_syahriah_pesantren: formData.bayar_syahriah_pesantren ? (tarif.syahriah_pesantren || 0) : 0,
-      bayar_syahriah_sekolah: formData.bayar_syahriah_sekolah ? tarifSekolah : 0,
-      total_bayar: 0,
-      keterangan: formData.keterangan,
-      tanggal_bayar: new Date().toISOString().split("T")[0],
-    }
-    payload.total_bayar = payload.bayar_dapur + payload.bayar_syahriah_pesantren + payload.bayar_syahriah_sekolah
+    const totalUnit = (formData.bayar_dapur ? (tarif.dapur || 0) : 0) + 
+                     (formData.bayar_syahriah_pesantren ? (tarif.syahriah_pesantren || 0) : 0) + 
+                     (formData.bayar_syahriah_sekolah ? tSekolah : 0)
 
     try {
-      const { error } = editingId 
-        ? await supabase.from("pembayaran").update(payload).eq("id", editingId)
-        : await supabase.from("pembayaran").upsert([payload], { onConflict: "santri_id,bulan,tahun" })
+      const batchData = selectedBulans.map(bulan => ({
+        santri_id: formData.santri_id,
+        bulan: bulan,
+        tahun: formData.tahun,
+        bayar_dapur: formData.bayar_dapur ? (tarif.dapur || 0) : 0,
+        bayar_syahriah_pesantren: formData.bayar_syahriah_pesantren ? (tarif.syahriah_pesantren || 0) : 0,
+        bayar_syahriah_sekolah: formData.bayar_syahriah_sekolah ? tSekolah : 0,
+        total_bayar: totalUnit,
+        keterangan: formData.keterangan || "Input Kolektif",
+        tanggal_bayar: new Date().toISOString().split("T")[0],
+      }))
 
+      const { error } = await supabase.from("pembayaran").upsert(batchData, { onConflict: "santri_id,bulan,tahun" })
       if (error) throw error
-      await simpanLog(editingId ? "UPDATE_BAYAR" : "INPUT_BAYAR", `${santri.nama} - Rp ${payload.total_bayar.toLocaleString()}`)
-      
-      Swal.fire({ icon: 'success', title: 'Berhasil', timer: 1500, showConfirmButton: false, heightAuto: false })
-      setIsDialogOpen(false); resetForm(); loadData(); onUpdate()
-    } catch (err: any) {
-      Swal.fire({ title: "Gagal", text: err.message, icon: "error", heightAuto: false })
-    }
-  }
 
-  async function handleDelete(id: string, nama: string) {
-    const result = await Swal.fire({ title: 'Hapus data?', text: `Hapus pembayaran ${nama}?`, icon: 'warning', showCancelButton: true, heightAuto: false })
-    if (result.isConfirmed) {
-      const { error } = await getSupabase().from("pembayaran").delete().eq("id", id)
-      if (!error) {
-        await simpanLog("HAPUS_BAYAR", `Hapus bayar: ${nama}`)
-        loadData(); onUpdate()
-      }
-    }
+      Swal.fire({ icon: 'success', title: 'Berhasil', timer: 1000, showConfirmButton: false })
+      setIsDialogOpen(false)
+      loadData(); onUpdate()
+      resetForm()
+    } catch (err: any) { Swal.fire("Gagal", err.message, "error") }
   }
 
   function handleEdit(p: any) {
     setEditingId(p.id)
+    setSelectedBulans([p.bulan])
+    setSelectedSantriObj(p.santri)
     setFormData({
-      santri_id: p.santri_id, bulan: p.bulan, tahun: p.tahun,
+      santri_id: p.santri_id,
+      tahun: p.tahun,
       bayar_dapur: p.bayar_dapur > 0,
       bayar_syahriah_pesantren: p.bayar_syahriah_pesantren > 0,
       bayar_syahriah_sekolah: p.bayar_syahriah_sekolah > 0,
@@ -220,30 +229,23 @@ export default function PembayaranSantri({ onUpdate }: PembayaranSantriProps) {
   }
 
   function resetForm() {
-    setFormData({ santri_id: "", bulan: new Date().getMonth() + 1, tahun: new Date().getFullYear(), bayar_dapur: false, bayar_syahriah_pesantren: false, bayar_syahriah_sekolah: false, keterangan: "" })
     setEditingId(null)
-  }
-
-  function sendWhatsApp(pembayaran: any) {
-    const santri = pembayaran.santri
-    if (!santri) return
-    let phoneNumber = santri.no_hp_wali
-    if (phoneNumber.startsWith("0")) phoneNumber = "62" + phoneNumber.substring(1)
-    const bulan = BULAN_NAMES[pembayaran.bulan - 1]
-    
-    const items = []
-    if (pembayaran.bayar_dapur > 0) items.push(`- Ke Dapur: Rp ${pembayaran.bayar_dapur.toLocaleString("id-ID")}`)
-    if (pembayaran.bayar_syahriah_pesantren > 0) items.push(`- Syahriah Pesantren: Rp ${pembayaran.bayar_syahriah_pesantren.toLocaleString("id-ID")}`)
-    if (pembayaran.bayar_syahriah_sekolah > 0) items.push(`- Syahriah Sekolah: Rp ${pembayaran.bayar_syahriah_sekolah.toLocaleString("id-ID")}`)
-
-    const message = `*BUKTI PEMBAYARAN*\n*Pesantren Al Huda*\n\nKepada Yth. Bapak/Ibu ${santri.nama_wali}\n\nTelah diterima pembayaran untuk:\n*Nama Santri:* ${santri.nama}\n*NIS:* ${santri.nis}\n*Periode:* ${bulan} ${pembayaran.tahun}\n\n*Rincian Pembayaran:*\n${items.join("\n")}\n\n*Total: Rp ${pembayaran.total_bayar.toLocaleString("id-ID")}*\n\nTanggal: ${new Date(pembayaran.tanggal_bayar).toLocaleDateString("id-ID")}\n\nJazakumullahu khairan\n_Aplikasi AMAL_`
-    window.open(`https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`, "_blank")
+    setSelectedSantriObj(null)
+    setSantriSearchQuery("")
+    setFormData({
+        santri_id: "",
+        tahun: new Date().getFullYear(),
+        bayar_dapur: true,
+        bayar_syahriah_pesantren: true,
+        bayar_syahriah_sekolah: true,
+        keterangan: ""
+    })
   }
 
   const filteredPembayaran = pembayaranList.filter((p) => {
     const matchesNama = p.santri?.nama?.toLowerCase().includes(searchNama.toLowerCase())
     const matchesBulan = filterBulan === "all" || p.bulan.toString() === filterBulan
-    const matchesTahun = filterTahun === "" || p.tahun.toString() === filterTahun
+    const matchesTahun = filterTahun === "all" || p.tahun.toString() === filterTahun
     return matchesNama && matchesBulan && matchesTahun
   })
 
@@ -253,105 +255,195 @@ export default function PembayaranSantri({ onUpdate }: PembayaranSantriProps) {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-emerald-100 rounded-lg"><ReceiptJapaneseYen className="w-6 h-6 text-emerald-700" /></div>
-            <div>
-              <CardTitle className="text-emerald-900 text-xl font-bold">Riwayat Pembayaran</CardTitle>
-              <p className="text-sm text-emerald-600">Manajemen transaksi santri</p>
-            </div>
+            <CardTitle className="text-emerald-900 text-xl font-bold">Riwayat Pembayaran</CardTitle>
           </div>
-          <Dialog open={isDialogOpen} onOpenChange={(o) => { setIsDialogOpen(o); if (!o) resetForm(); }}>
+          <Dialog open={isDialogOpen} onOpenChange={(val) => { setIsDialogOpen(val); if(!val) resetForm(); }}>
             <DialogTrigger asChild>
-              <Button className="bg-emerald-600 hover:bg-emerald-700 shadow-md">
+              <Button onClick={() => resetForm()} className="bg-emerald-600 hover:bg-emerald-700 shadow-md">
                 <Plus className="w-4 h-4 mr-2" /> Input Bayar
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-md border-emerald-100">
+            <DialogContent className="max-w-md max-h-[95vh] overflow-y-auto">
               <DialogHeader><DialogTitle>{editingId ? "Edit" : "Input"} Pembayaran</DialogTitle></DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4 pt-4">
+              <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+                
+                {/* SELECT SANTRI WITH SEARCH */}
                 <div className="space-y-2">
-                  <Label>Santri</Label>
-                  <Popover open={openCombobox} onOpenChange={setOpenCombobox}>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-between">
-                        {formData.santri_id ? santriList.find((s) => s.id === formData.santri_id)?.nama : "Pilih santri..."}
-                        <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
-                      <Command>
-                        <CommandInput placeholder="Cari..." />
-                        <CommandList>
-                          <CommandEmpty>Tidak ditemukan.</CommandEmpty>
-                          <CommandGroup>
-                            {santriList.map((s) => (
-                              <CommandItem key={s.id} value={s.nama} onSelect={() => { setFormData({ ...formData, santri_id: s.id }); setOpenCombobox(false); }}>
-                                <Check className={cn("mr-2 h-4 w-4", formData.santri_id === s.id ? "opacity-100" : "opacity-0")} />{s.nama}
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Bulan</Label>
-                    <Select value={formData.bulan.toString()} onValueChange={(v) => setFormData({ ...formData, bulan: parseInt(v) })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>{BULAN_NAMES.map((b, i) => <SelectItem key={i+1} value={(i+1).toString()}>{b}</SelectItem>)}</SelectContent>
-                    </Select>
+                  <Label>Cari & Pilih Santri</Label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                    <Input 
+                      placeholder="Ketik nama atau NIS..." 
+                      value={santriSearchQuery}
+                      onChange={(e) => setSantriSearchQuery(e.target.value)}
+                      className="pl-9"
+                    />
                   </div>
-                  <div className="space-y-2"><Label>Tahun</Label><Input type="number" value={formData.tahun} onChange={(e) => setFormData({ ...formData, tahun: parseInt(e.target.value) })} /></div>
+                  
+                  {/* Daftar Santri Scrollable */}
+                  <div className="border rounded-lg max-h-40 overflow-y-auto bg-slate-50 shadow-inner p-1 space-y-1">
+                    {filteredSantriOptions.length > 0 ? (
+                      filteredSantriOptions.map((s) => (
+                        <div 
+                          key={s.id} 
+                          onClick={() => {
+                            setFormData({ ...formData, santri_id: s.id })
+                            setSelectedSantriObj(s)
+                            setSantriSearchQuery(s.nama) // Isi input dengan nama yang dipilih
+                          }}
+                          className={cn(
+                            "flex items-center justify-between px-3 py-2 rounded-md cursor-pointer text-xs transition-colors",
+                            formData.santri_id === s.id ? "bg-emerald-600 text-white font-bold" : "hover:bg-emerald-100 text-slate-700"
+                          )}
+                        >
+                          <div className="flex flex-col">
+                            <span>{s.nama}</span>
+                            <span className={cn("text-[10px]", formData.santri_id === s.id ? "text-emerald-100" : "text-slate-400")}>NIS: {s.nis}</span>
+                          </div>
+                          {formData.santri_id === s.id && <Check className="h-4 w-4" />}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-3 text-center text-xs text-slate-400 italic">Santri tidak ditemukan</div>
+                    )}
+                  </div>
+                  {selectedSantriObj && (
+                    <div className="p-2 bg-emerald-50 rounded border border-emerald-100 flex items-center gap-2">
+                        <User className="h-3 w-3 text-emerald-600" />
+                        <span className="text-[11px] font-bold text-emerald-800">Terpilih: {selectedSantriObj.nama} ({selectedSantriObj.jenjang})</span>
+                    </div>
+                  )}
                 </div>
-                <div className="p-4 bg-emerald-50 rounded-xl space-y-3 border border-emerald-100">
-                  <div className="flex items-center space-x-2"><Checkbox id="dapur" checked={formData.bayar_dapur} onCheckedChange={(c) => setFormData({...formData, bayar_dapur: !!c})} /><Label htmlFor="dapur">Uang Dapur</Label></div>
-                  <div className="flex items-center space-x-2"><Checkbox id="pesantren" checked={formData.bayar_syahriah_pesantren} onCheckedChange={(c) => setFormData({...formData, bayar_syahriah_pesantren: !!c})} /><Label htmlFor="pesantren">Syahriah Pesantren</Label></div>
-                  <div className="flex items-center space-x-2"><Checkbox id="sekolah" checked={formData.bayar_syahriah_sekolah} onCheckedChange={(c) => setFormData({...formData, bayar_syahriah_sekolah: !!c})} /><Label htmlFor="sekolah">Syahriah Sekolah</Label></div>
+
+                <div className="space-y-2">
+                  <Label>Tahun</Label>
+                  <Input type="number" value={formData.tahun} onChange={(e) => setFormData(p => ({...p, tahun: parseInt(e.target.value)}))} />
                 </div>
-                <Textarea placeholder="Keterangan..." value={formData.keterangan} onChange={(e) => setFormData({...formData, keterangan: e.target.value})} />
-                <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700">Simpan</Button>
+
+                <div className="space-y-2">
+                  <Label>Pilih Bulan</Label>
+                  <div className="grid grid-cols-3 gap-2 p-2 bg-slate-50 rounded-lg border">
+                    {BULAN_NAMES.map((name, idx) => (
+                      <div 
+                        key={idx} onClick={() => toggleBulan(idx + 1)}
+                        className={cn("cursor-pointer p-2 rounded text-center text-[10px] font-bold transition-all border",
+                        selectedBulans.includes(idx + 1) ? "bg-emerald-600 border-emerald-600 text-white shadow-sm" : "bg-white text-slate-500 border-slate-200")}
+                      >{name.substring(0, 3)}</div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-3 bg-emerald-50 rounded-lg space-y-2 border">
+                  {["dapur", "syahriah_pesantren", "syahriah_sekolah"].map((f) => (
+                    <div key={f} className="flex items-center space-x-2">
+                      <Checkbox id={f} checked={(formData as any)[`bayar_${f}`]} onCheckedChange={(c) => setFormData(p => ({...p, [`bayar_${f}`]: !!c}))} />
+                      <Label htmlFor={f} className="capitalize text-xs cursor-pointer">{f.replace("_", " ")}</Label>
+                    </div>
+                  ))}
+                </div>
+                <Textarea placeholder="Keterangan..." value={formData.keterangan} onChange={(e) => setFormData(p => ({...p, keterangan: e.target.value}))} />
+                <Button type="submit" className="w-full bg-emerald-600 font-bold shadow-lg py-6 text-lg">Simpan Transaksi</Button>
               </form>
             </DialogContent>
           </Dialog>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6">
-          <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><Input className="pl-9" placeholder="Cari nama..." value={searchNama} onChange={(e) => setSearchNama(e.target.value)} /></div>
-          <Select value={filterBulan} onValueChange={setFilterBulan}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="all">Semua Bulan</SelectItem>{BULAN_NAMES.map((b, i) => <SelectItem key={i+1} value={(i+1).toString()}>{b}</SelectItem>)}</SelectContent>
-          </Select>
-          <Input type="number" value={filterTahun} onChange={(e) => setFilterTahun(e.target.value)} />
+
+        {/* Section Filter Tabel */}
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-3 bg-emerald-50/50 p-3 rounded-lg border border-emerald-100">
+          <div className="space-y-1">
+            <Label className="text-[10px] uppercase font-bold text-emerald-700">Cari Nama</Label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-3 h-3" />
+              <Input placeholder="Nama santri..." value={searchNama} onChange={(e) => setSearchNama(e.target.value)} className="pl-8 h-9 text-xs" />
+            </div>
+          </div>
+          
+          <div className="space-y-1">
+            <Label className="text-[10px] uppercase font-bold text-emerald-700">Filter Bulan</Label>
+            <Select value={filterBulan} onValueChange={setFilterBulan}>
+              <SelectTrigger className="h-9 text-xs">
+                <SelectValue placeholder="Semua Bulan" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Semua Bulan</SelectItem>
+                {BULAN_NAMES.map((name, idx) => (
+                  <SelectItem key={idx} value={(idx + 1).toString()}>{name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-[10px] uppercase font-bold text-emerald-700">Filter Tahun</Label>
+            <Select value={filterTahun} onValueChange={setFilterTahun}>
+              <SelectTrigger className="h-9 text-xs">
+                <SelectValue placeholder="Pilih Tahun" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Semua Tahun</SelectItem>
+                {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
+                  <SelectItem key={y} value={y.toString()}>{y}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-end">
+            <Button variant="outline" size="sm" className="w-full h-9 text-xs border-emerald-200 text-emerald-700" onClick={() => { setSearchNama(""); setFilterBulan("all"); setFilterTahun(new Date().getFullYear().toString()); }}>
+              Reset Filter
+            </Button>
+          </div>
         </div>
       </CardHeader>
+
       <CardContent>
-        <div className="rounded-xl border border-emerald-100 overflow-hidden bg-white shadow-sm">
-          <Table>
-            <TableHeader className="bg-emerald-50/50">
-              <TableRow>
-                <TableHead>Tanggal</TableHead>
-                <TableHead>Nama Santri</TableHead>
-                <TableHead>Periode</TableHead>
-                <TableHead>Total</TableHead>
-                <TableHead className="text-right">Aksi</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredPembayaran.map((p) => (
-                <TableRow key={p.id} className="hover:bg-emerald-50/30">
-                  <TableCell className="text-xs text-slate-500">{new Date(p.tanggal_bayar).toLocaleDateString("id-ID")}</TableCell>
-                  <TableCell className="font-bold">{p.santri?.nama}</TableCell>
-                  <TableCell className="text-xs">{BULAN_NAMES[p.bulan - 1]} {p.tahun}</TableCell>
-                  <TableCell className="font-bold text-emerald-700">Rp {p.total_bayar.toLocaleString()}</TableCell>
-                  <TableCell className="text-right flex justify-end gap-1">
-                    <Button size="sm" variant="ghost" onClick={() => cetakKwitansi(p)} className="text-blue-600"><Printer className="w-4 h-4" /></Button>
-                    <Button size="sm" variant="ghost" onClick={() => sendWhatsApp(p)} className="text-green-600"><Send className="w-4 h-4" /></Button>
-                    <Button size="sm" variant="ghost" onClick={() => handleEdit(p)} className="text-emerald-600"><Pencil className="w-4 h-4" /></Button>
-                    <Button size="sm" variant="ghost" onClick={() => handleDelete(p.id, p.santri?.nama)} className="text-red-500"><Trash2 className="w-4 h-4" /></Button>
-                  </TableCell>
+        <div className="relative rounded-xl border border-emerald-100 bg-white overflow-hidden shadow-sm">
+          <div className="overflow-x-auto overflow-y-auto max-h-[600px] no-scrollbar">
+            <Table className="relative w-full border-collapse">
+              <TableHeader className="sticky top-0 z-20 bg-emerald-50 shadow-sm">
+                <TableRow>
+                  <TableHead className="font-bold text-emerald-900 bg-emerald-50">Santri</TableHead>
+                  <TableHead className="font-bold text-emerald-900 bg-emerald-50">Periode</TableHead>
+                  <TableHead className="font-bold text-emerald-900 bg-emerald-50">Total</TableHead>
+                  <TableHead className="text-right font-bold text-emerald-900 bg-emerald-50">Aksi</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filteredPembayaran.map(p => (
+                  <TableRow key={p.id} className="hover:bg-emerald-50/30 transition-colors border-b border-emerald-50">
+                    <TableCell className="py-3">
+                      <div className="font-bold text-emerald-950">{p.santri?.nama}</div>
+                      <div className="text-[10px] text-slate-400">{new Date(p.tanggal_bayar).toLocaleDateString("id-ID")}</div>
+                    </TableCell>
+                    <TableCell className="text-xs font-medium text-emerald-800">
+                      {BULAN_NAMES[p.bulan-1]} {p.tahun}
+                    </TableCell>
+                    <TableCell className="font-bold text-emerald-700 text-sm">
+                      Rp {p.total_bayar.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button size="sm" variant="ghost" onClick={() => cetakKwitansi(p)} className="text-blue-600 hover:bg-blue-50 h-8 w-8 p-0"><Printer className="w-4 h-4" /></Button>
+                        <Button size="sm" variant="ghost" onClick={() => sendWhatsApp(p)} className="text-green-600 hover:bg-green-50 h-8 w-8 p-0"><Send className="w-4 h-4" /></Button>
+                        <Button size="sm" variant="ghost" onClick={() => handleEdit(p)} className="text-emerald-600 hover:bg-emerald-50 h-8 w-8 p-0"><Pencil className="w-4 h-4" /></Button>
+                        <Button size="sm" variant="ghost" onClick={async () => {
+                           const res = await Swal.fire({ title: 'Hapus?', text: 'Hapus data ini?', icon: 'warning', showCancelButton: true });
+                           if (res.isConfirmed) { await getSupabase().from("pembayaran").delete().eq("id", p.id); loadData(); onUpdate(); }
+                        }} className="text-red-500 hover:bg-red-50 h-8 w-8 p-0"><Trash2 className="w-4 h-4" /></Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {filteredPembayaran.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center py-20 text-slate-400 italic">
+                      Data pembayaran tidak ditemukan.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </div>
       </CardContent>
     </Card>

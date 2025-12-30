@@ -70,51 +70,78 @@ export default function Home() {
   }
 
   const loadStats = useCallback(async () => {
-    const supabase = getSupabase()
-    const [santriRes, pembayaranRes, pemasukanRes, pengeluaranRes, tarifRes] = await Promise.all([
-      supabase.from("santri").select("id, tanggal_masuk, jenjang").eq("status", "aktif"),
-      supabase.from("pembayaran").select("santri_id, total_bayar, bulan, tahun"),
-      supabase.from("keuangan").select("jumlah").eq("jenis", "pemasukan"),
-      supabase.from("keuangan").select("jumlah").eq("jenis", "pengeluaran"),
-      supabase.from("tarif").select("nama, jumlah")
-    ])
+  const supabase = getSupabase()
+  const [santriRes, pembayaranRes, pemasukanRes, pengeluaranRes, tarifRes] = await Promise.all([
+    supabase.from("santri").select("id, tanggal_masuk, tanggal_mulai_tagihan, jenjang").eq("status", "aktif"),
+    supabase.from("pembayaran").select("santri_id, total_bayar, bulan, tahun"),
+    supabase.from("keuangan").select("jumlah").eq("jenis", "pemasukan"),
+    supabase.from("keuangan").select("jumlah").eq("jenis", "pengeluaran"),
+    supabase.from("tarif").select("nama, jumlah")
+  ])
 
-    const tarifMap: Record<string, number> = {}
-    tarifRes.data?.forEach((t: any) => { tarifMap[t.nama] = Number(t.jumlah) })
+  const tarifMap: Record<string, number> = {}
+  tarifRes.data?.forEach((t: any) => { tarifMap[t.nama] = Number(t.jumlah) })
 
-    const lunasMap = new Map()
-    pembayaranRes.data?.forEach(p => {
-      lunasMap.set(`${p.santri_id}-${p.bulan}-${p.tahun}`, Number(p.total_bayar))
-    })
+  // Gunakan Map untuk mempercepat pengecekan data pembayaran
+  const lunasMap = new Map()
+  pembayaranRes.data?.forEach(p => {
+    lunasMap.set(`${p.santri_id}-${p.bulan}-${p.tahun}`, Number(p.total_bayar))
+  })
 
-    let calculatedTunggakan = 0
-    const currentMonth = new Date().getMonth() + 1
-    const currentYear = new Date().getFullYear()
+  let calculatedTunggakan = 0
+  const sekarang = new Date()
+  const currentMonth = sekarang.getMonth() + 1
+  const currentYear = sekarang.getFullYear()
 
-    if (santriRes.data) {
-      santriRes.data.forEach((santri) => {
-        const tglMasuk = new Date(santri.tanggal_masuk)
-        const biayaSekolah = tarifMap[`syahriah_sekolah_${santri.jenjang?.toLowerCase()}`] || 0
-        const totalWajib = (tarifMap.dapur || 0) + (tarifMap.syahriah_pesantren || 0) + biayaSekolah
-        for (let th = tglMasuk.getFullYear(); th <= currentYear; th++) {
-          const start = th === tglMasuk.getFullYear() ? tglMasuk.getMonth() + 1 : 1
-          const end = th === currentYear ? currentMonth : 12
-          for (let bln = start; bln <= end; bln++) {
-            const bayar = lunasMap.get(`${santri.id}-${bln}-${th}`)
-            if (bayar === undefined) calculatedTunggakan += totalWajib
-            else if (bayar < totalWajib) calculatedTunggakan += (totalWajib - bayar)
+  if (santriRes.data) {
+    santriRes.data.forEach((santri) => {
+      // 1. Tentukan Tanggal Wajib Bayar (Sinkron dengan Tab Tunggakan)
+      const tglMulaiKewajiban = santri.tanggal_mulai_tagihan 
+        ? new Date(santri.tanggal_mulai_tagihan) 
+        : new Date(santri.tanggal_masuk);
+
+      const tahunWajib = tglMulaiKewajiban.getFullYear();
+      const bulanWajib = tglMulaiKewajiban.getMonth() + 1;
+
+      // 2. Tentukan Biaya Sekolah (Logika Takhosus & SMP)
+      let tarifSekolah = 0;
+      const jenjang = santri.jenjang?.toLowerCase();
+      if (jenjang === "smk") tarifSekolah = tarifMap.syahriah_sekolah_smk || 0;
+      else if (jenjang === "takhosus") tarifSekolah = tarifMap.syahriah_sekolah_takhosus || 0;
+      else if (jenjang === "kuliah") tarifSekolah = tarifMap.syahriah_sekolah_kuliah || 0;
+      else tarifSekolah = tarifMap.syahriah_sekolah_smp || 0;
+
+      const totalWajibPerBulan = (tarifMap.dapur || 0) + (tarifMap.syahriah_pesantren || 0) + tarifSekolah;
+
+      // 3. Loop Tahun: Hanya dari tahun wajib sampai tahun sekarang
+      for (let th = tahunWajib; th <= currentYear; th++) {
+        
+        // Tentukan Bulan Mulai: Jika tahun pertama wajib, mulai dari bulanWajib. Jika tahun berikutnya, mulai dari Januari (1)
+        const startBln = (th === tahunWajib) ? bulanWajib : 1;
+        
+        // Tentukan Bulan Akhir: Jika tahun berjalan, mentok di bulan sekarang. Jika tahun lalu, mentok di Desember (12)
+        const endBln = (th === currentYear) ? currentMonth : 12;
+
+        for (let bln = startBln; bln <= endBln; bln++) {
+          const key = `${santri.id}-${bln}-${th}`;
+          const sudahBayar = lunasMap.get(key) || 0;
+
+          // Hitung selisih jika belum lunas
+          if (sudahBayar < totalWajibPerBulan) {
+            calculatedTunggakan += (totalWajibPerBulan - sudahBayar);
           }
         }
-      })
-    }
+      }
+    });
+  }
 
-    setStats({
-      totalSantri: santriRes.data?.length || 0,
-      totalPemasukan: (pembayaranRes.data?.reduce((a, b) => a + Number(b.total_bayar), 0) || 0) + (pemasukanRes.data?.reduce((a, b) => a + Number(b.jumlah), 0) || 0),
-      totalPengeluaran: pengeluaranRes.data?.reduce((a, b) => a + Number(b.jumlah), 0) || 0,
-      totalTunggakan: calculatedTunggakan
-    })
-  }, [])
+  setStats({
+    totalSantri: santriRes.data?.length || 0,
+    totalPemasukan: (pembayaranRes.data?.reduce((a, b) => a + Number(b.total_bayar), 0) || 0) + (pemasukanRes.data?.reduce((a, b) => a + Number(b.jumlah), 0) || 0),
+    totalPengeluaran: pengeluaranRes.data?.reduce((a, b) => a + Number(b.jumlah), 0) || 0,
+    totalTunggakan: calculatedTunggakan
+  })
+}, [])
 
   useEffect(() => { loadStats(); fetchUser() }, [loadStats, fetchUser])
 
