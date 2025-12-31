@@ -157,7 +157,6 @@ export default function TunggakanSantri() {
             <div className="p-2 bg-red-50 rounded-lg"><AlertCircle className="w-6 h-6 text-red-600" /></div>
             <div>
                 <CardTitle className="text-emerald-900 text-xl font-bold">Tunggakan Santri</CardTitle>
-                <p className="text-sm text-emerald-600 font-medium">Monitoring piutang syahriah santri</p>
             </div>
           </div>
           
