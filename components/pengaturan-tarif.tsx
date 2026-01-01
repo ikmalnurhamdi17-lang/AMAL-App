@@ -110,7 +110,7 @@ export default function PengaturanTarif({ onUpdate }: PengaturanTarifProps) {
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-4">
-              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Biaya Harian</h3>
+              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Biaya Pesantren</h3>
               <div>
                 <Label htmlFor="dapur" className="text-slate-700">Uang Dapur (Makan)</Label>
                 <div className="relative mt-1">
@@ -129,7 +129,7 @@ export default function PengaturanTarif({ onUpdate }: PengaturanTarifProps) {
             </div>
 
             <div className="space-y-4">
-              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Syahriah Sekolah</h3>
+              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Biaya Sekolah</h3>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label htmlFor="smp" className="text-xs">SMP</Label>

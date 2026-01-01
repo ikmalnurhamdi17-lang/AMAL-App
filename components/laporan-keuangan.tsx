@@ -145,20 +145,39 @@ export default function LaporanKeuangan({ onUpdate }: LaporanKeuanganProps) {
   }
 
   const sendToTelegram = async (data: any, tipe: string) => {
-    const icon = data.jenis === "pemasukan" ? "➕ PEMASUKAN" : "➖ PENGELUARAN";
-    const formattedJumlah = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(data.jumlah);
-    const message = `<b>${icon} ${tipe.toUpperCase()}</b>\n━━━━━━━━━━━━━━━━━━\n<b>📅 TANGGAL :</b> <code>${data.tanggal}</code>\n<b>📂 KATEGORI :</b> <b>${data.kategori.toUpperCase()}</b>\n<b>💵 JUMLAH :</b> <b>${formattedJumlah}</b>\n<b>📝 KET :</b> <code>${data.keterangan || "-"}</code>\n━━━━━━━━━━━━━━━━━━\n<i>Sistem Keuangan Al-Huda</i>`;
+    const icon = data.jenis === "pemasukan" ? "✅ DANA MASUK" : "⚠️ DANA KELUAR";
+    
+    // Hilangkan teks "DONASI: " agar kategori tidak muncul double di Telegram
+    const kategoriBersih = data.kategori.replace("DONASI: ", "");
+    
+    const formattedJumlah = new Intl.NumberFormat("id-ID", { 
+      style: "currency", 
+      currency: "IDR", 
+      minimumFractionDigits: 0 
+    }).format(data.jumlah);
+
+    const message = 
+      `<b>${icon} (${tipe.toUpperCase()})</b>\n` +
+      `━━━━━━━━━━━━━━━━━━\n` +
+      `📅 <b>TANGGAL :</b> <code>${data.tanggal}</code>\n` +
+      `📂 <b>KATEGORI :</b> <code>${kategoriBersih.toUpperCase()}</code>\n` +
+      `💵 <b>NOMINAL  :</b> <b>${formattedJumlah}</b>\n` +
+      `📝 <b>CATATAN  :</b> <i>${data.keterangan || "-"}</i>\n` +
+      `━━━━━━━━━━━━━━━━━━\n` +
+      `<i>Sistem Aplikasi Manajemen Keuangan Al-Huda</i>`;
+
     try {
       await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chat_id: CHAT_ID, text: message, parse_mode: "HTML" }),
       });
-    } catch (err) { console.error(err) }
+    } catch (err) { console.error("Telegram Error:", err) }
   };
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault(); if (isSubmitting) return;
-    const finalKategori = isDonasiMode ? `DONASI ${formData.kategori}` : formData.kategori;
+    const finalKategori = isDonasiMode ? `DONASI: ${formData.kategori}` : formData.kategori;
     setIsSubmitting(true);
     try {
       const payload = { jenis: formData.jenis, kategori: finalKategori, jumlah: Number.parseFloat(formData.jumlah), tanggal: formData.tanggal, keterangan: formData.keterangan }

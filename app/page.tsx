@@ -70,78 +70,68 @@ export default function Home() {
   }
 
   const loadStats = useCallback(async () => {
-  const supabase = getSupabase()
-  const [santriRes, pembayaranRes, pemasukanRes, pengeluaranRes, tarifRes] = await Promise.all([
-    supabase.from("santri").select("id, tanggal_masuk, tanggal_mulai_tagihan, jenjang").eq("status", "aktif"),
-    supabase.from("pembayaran").select("santri_id, total_bayar, bulan, tahun"),
-    supabase.from("keuangan").select("jumlah").eq("jenis", "pemasukan"),
-    supabase.from("keuangan").select("jumlah").eq("jenis", "pengeluaran"),
-    supabase.from("tarif").select("nama, jumlah")
-  ])
+    const supabase = getSupabase()
+    const [santriRes, pembayaranRes, pemasukanRes, pengeluaranRes, tarifRes] = await Promise.all([
+      supabase.from("santri").select("id, tanggal_masuk, tanggal_mulai_tagihan, jenjang").eq("status", "aktif"),
+      supabase.from("pembayaran").select("santri_id, total_bayar, bulan, tahun"),
+      supabase.from("keuangan").select("jumlah").eq("jenis", "pemasukan"),
+      supabase.from("keuangan").select("jumlah").eq("jenis", "pengeluaran"),
+      supabase.from("tarif").select("nama, jumlah")
+    ])
 
-  const tarifMap: Record<string, number> = {}
-  tarifRes.data?.forEach((t: any) => { tarifMap[t.nama] = Number(t.jumlah) })
+    const tarifMap: Record<string, number> = {}
+    tarifRes.data?.forEach((t: any) => { tarifMap[t.nama] = Number(t.jumlah) })
 
-  // Gunakan Map untuk mempercepat pengecekan data pembayaran
-  const lunasMap = new Map()
-  pembayaranRes.data?.forEach(p => {
-    lunasMap.set(`${p.santri_id}-${p.bulan}-${p.tahun}`, Number(p.total_bayar))
-  })
+    const lunasMap = new Map()
+    pembayaranRes.data?.forEach(p => {
+      lunasMap.set(`${p.santri_id}-${p.bulan}-${p.tahun}`, Number(p.total_bayar))
+    })
 
-  let calculatedTunggakan = 0
-  const sekarang = new Date()
-  const currentMonth = sekarang.getMonth() + 1
-  const currentYear = sekarang.getFullYear()
+    let calculatedTunggakan = 0
+    const sekarang = new Date()
+    const currentMonth = sekarang.getMonth() + 1
+    const currentYear = sekarang.getFullYear()
 
-  if (santriRes.data) {
-    santriRes.data.forEach((santri) => {
-      // 1. Tentukan Tanggal Wajib Bayar (Sinkron dengan Tab Tunggakan)
-      const tglMulaiKewajiban = santri.tanggal_mulai_tagihan 
-        ? new Date(santri.tanggal_mulai_tagihan) 
-        : new Date(santri.tanggal_masuk);
+    if (santriRes.data) {
+      santriRes.data.forEach((santri) => {
+        const tglMulaiKewajiban = santri.tanggal_mulai_tagihan 
+          ? new Date(santri.tanggal_mulai_tagihan) 
+          : new Date(santri.tanggal_masuk);
 
-      const tahunWajib = tglMulaiKewajiban.getFullYear();
-      const bulanWajib = tglMulaiKewajiban.getMonth() + 1;
+        const tahunWajib = tglMulaiKewajiban.getFullYear();
+        const bulanWajib = tglMulaiKewajiban.getMonth() + 1;
 
-      // 2. Tentukan Biaya Sekolah (Logika Takhosus & SMP)
-      let tarifSekolah = 0;
-      const jenjang = santri.jenjang?.toLowerCase();
-      if (jenjang === "smk") tarifSekolah = tarifMap.syahriah_sekolah_smk || 0;
-      else if (jenjang === "takhosus") tarifSekolah = tarifMap.syahriah_sekolah_takhosus || 0;
-      else if (jenjang === "kuliah") tarifSekolah = tarifMap.syahriah_sekolah_kuliah || 0;
-      else tarifSekolah = tarifMap.syahriah_sekolah_smp || 0;
+        let tarifSekolah = 0;
+        const jenjang = santri.jenjang?.toLowerCase();
+        if (jenjang === "smk") tarifSekolah = tarifMap.syahriah_sekolah_smk || 0;
+        else if (jenjang === "takhosus") tarifSekolah = tarifMap.syahriah_sekolah_takhosus || 0;
+        else if (jenjang === "kuliah") tarifSekolah = tarifMap.syahriah_sekolah_kuliah || 0;
+        else tarifSekolah = tarifMap.syahriah_sekolah_smp || 0;
 
-      const totalWajibPerBulan = (tarifMap.dapur || 0) + (tarifMap.syahriah_pesantren || 0) + tarifSekolah;
+        const totalWajibPerBulan = (tarifMap.dapur || 0) + (tarifMap.syahriah_pesantren || 0) + tarifSekolah;
 
-      // 3. Loop Tahun: Hanya dari tahun wajib sampai tahun sekarang
-      for (let th = tahunWajib; th <= currentYear; th++) {
-        
-        // Tentukan Bulan Mulai: Jika tahun pertama wajib, mulai dari bulanWajib. Jika tahun berikutnya, mulai dari Januari (1)
-        const startBln = (th === tahunWajib) ? bulanWajib : 1;
-        
-        // Tentukan Bulan Akhir: Jika tahun berjalan, mentok di bulan sekarang. Jika tahun lalu, mentok di Desember (12)
-        const endBln = (th === currentYear) ? currentMonth : 12;
+        for (let th = tahunWajib; th <= currentYear; th++) {
+          const startBln = (th === tahunWajib) ? bulanWajib : 1;
+          const endBln = (th === currentYear) ? currentMonth : 12;
 
-        for (let bln = startBln; bln <= endBln; bln++) {
-          const key = `${santri.id}-${bln}-${th}`;
-          const sudahBayar = lunasMap.get(key) || 0;
-
-          // Hitung selisih jika belum lunas
-          if (sudahBayar < totalWajibPerBulan) {
-            calculatedTunggakan += (totalWajibPerBulan - sudahBayar);
+          for (let bln = startBln; bln <= endBln; bln++) {
+            const key = `${santri.id}-${bln}-${th}`;
+            const sudahBayar = lunasMap.get(key) || 0;
+            if (sudahBayar < totalWajibPerBulan) {
+              calculatedTunggakan += (totalWajibPerBulan - sudahBayar);
+            }
           }
         }
-      }
-    });
-  }
+      });
+    }
 
-  setStats({
-    totalSantri: santriRes.data?.length || 0,
-    totalPemasukan: (pembayaranRes.data?.reduce((a, b) => a + Number(b.total_bayar), 0) || 0) + (pemasukanRes.data?.reduce((a, b) => a + Number(b.jumlah), 0) || 0),
-    totalPengeluaran: pengeluaranRes.data?.reduce((a, b) => a + Number(b.jumlah), 0) || 0,
-    totalTunggakan: calculatedTunggakan
-  })
-}, [])
+    setStats({
+      totalSantri: santriRes.data?.length || 0,
+      totalPemasukan: (pembayaranRes.data?.reduce((a, b) => a + Number(b.total_bayar), 0) || 0) + (pemasukanRes.data?.reduce((a, b) => a + Number(b.jumlah), 0) || 0),
+      totalPengeluaran: pengeluaranRes.data?.reduce((a, b) => a + Number(b.jumlah), 0) || 0,
+      totalTunggakan: calculatedTunggakan
+    })
+  }, [])
 
   useEffect(() => { loadStats(); fetchUser() }, [loadStats, fetchUser])
 
@@ -167,8 +157,6 @@ export default function Home() {
       <header className="bg-white/95 backdrop-blur-md border-b border-emerald-100 shadow-sm sticky top-0 z-50">
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-20">
-            
-            {/* LEFT: Logo & Brand */}
             <div className="flex items-center gap-3">
               <div className="bg-emerald-50 p-2 rounded-lg border border-emerald-100 shadow-sm">
                 <Image src="/logoo.png" alt="Logo" width={34} height={34} className="object-contain" />
@@ -187,9 +175,7 @@ export default function Home() {
               </div>
             </div>
 
-            {/* RIGHT: Desktop Nav & Mobile Hamburger */}
             <div className="flex items-center gap-4">
-              {/* Desktop Navigation */}
               <nav className="hidden lg:block">
                 <Tabs value={activeTab} onValueChange={setActiveTab}>
                   <TabsList className="bg-transparent h-auto p-0 flex gap-1 border-none">
@@ -211,7 +197,6 @@ export default function Home() {
 
               <div className="h-6 w-[1px] bg-slate-200 mx-1 hidden lg:block"></div>
 
-              {/* Logout Button (Hidden on very small mobile) */}
               <button 
                 onClick={handleLogout} 
                 className="hidden sm:flex items-center gap-2 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-3 py-2 rounded-lg text-[11px] font-bold transition-all border border-red-100 shrink-0"
@@ -220,7 +205,6 @@ export default function Home() {
                 <span>Keluar</span>
               </button>
 
-              {/* Mobile Hamburger Menu */}
               <div className="lg:hidden">
                 <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
                   <SheetTrigger asChild>
@@ -275,14 +259,30 @@ export default function Home() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
           
           <TabsContent value="dashboard" className="space-y-8 animate-in fade-in duration-500">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* GRID STATISTIK - Diatur Kolom Dinamis berdasarkan Role */}
+            <div className={cn(
+                "grid gap-6",
+                isAdmin ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" : "grid-cols-1 sm:grid-cols-3"
+            )}>
               <StatCard title="Santri Aktif" value={stats.totalSantri} icon={<Users size={18}/>} color="emerald" sub="Santri terdaftar" />
-              <StatCard title="Pemasukan" value={`Rp ${stats.totalPemasukan.toLocaleString("id-ID")}`} icon={<TrendingUp size={18}/>} color="green" sub="Total saldo masuk" />
+              <StatCard title="Pemasukan" value={`Rp ${stats.totalPemasukan.toLocaleString("id-ID")}`} icon={<TrendingUp size={18}/>} color="green" sub="Total dana masuk" />
               <StatCard title="Pengeluaran" value={`Rp ${stats.totalPengeluaran.toLocaleString("id-ID")}`} icon={<TrendingDown size={18}/>} color="orange" sub="Total dana keluar" />
-              <StatCard title="Tunggakan" value={`Rp ${stats.totalTunggakan.toLocaleString("id-ID")}`} icon={<Wallet size={18}/>} color="red" sub="Dana belum tertagih" />
+              
+              {/* Card Tunggakan Hanya Muncul untuk Administrator */}
+              {isAdmin && (
+                <StatCard 
+                    title="Total Tunggakan" 
+                    value={`Rp ${stats.totalTunggakan.toLocaleString("id-ID")}`} 
+                    icon={<Wallet size={18}/>} 
+                    color="red" 
+                    sub="Dana belum tertagih" 
+                />
+              )}
             </div>
+
             <div className="bg-white p-6 rounded-2xl border border-emerald-50 shadow-sm">
-              <DashboardOverview stats={stats} />
+              {/* Komponen Overview juga menerima props isAdmin untuk filter tampilan dalam */}
+              <DashboardOverview stats={stats} isAdmin={isAdmin} />
             </div>
           </TabsContent>
 
