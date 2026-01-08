@@ -71,8 +71,9 @@ export default function Home() {
 
   const loadStats = useCallback(async () => {
     const supabase = getSupabase()
+    // 1. Tambahkan kolom 'dapur' pada select santri agar bisa divalidasi logikanya
     const [santriRes, pembayaranRes, pemasukanRes, pengeluaranRes, tarifRes] = await Promise.all([
-      supabase.from("santri").select("id, tanggal_masuk, tanggal_mulai_tagihan, jenjang").eq("status", "aktif"),
+      supabase.from("santri").select("id, tanggal_masuk, tanggal_mulai_tagihan, jenjang, dapur").eq("status", "aktif"),
       supabase.from("pembayaran").select("santri_id, total_bayar, bulan, tahun"),
       supabase.from("keuangan").select("jumlah").eq("jenis", "pemasukan"),
       supabase.from("keuangan").select("jumlah").eq("jenis", "pengeluaran"),
@@ -101,14 +102,23 @@ export default function Home() {
         const tahunWajib = tglMulaiKewajiban.getFullYear();
         const bulanWajib = tglMulaiKewajiban.getMonth() + 1;
 
-        let tarifSekolah = 0;
-        const jenjang = santri.jenjang?.toLowerCase();
-        if (jenjang === "smk") tarifSekolah = tarifMap.syahriah_sekolah_smk || 0;
-        else if (jenjang === "takhosus") tarifSekolah = tarifMap.syahriah_sekolah_takhosus || 0;
-        else if (jenjang === "kuliah") tarifSekolah = tarifMap.syahriah_sekolah_kuliah || 0;
-        else tarifSekolah = tarifMap.syahriah_sekolah_smp || 0;
+        // LOGIKA DINAMIS TARIF UNTUK PERHITUNGAN TUNGGAKAN
+        let totalWajibPerBulan = 0;
 
-        const totalWajibPerBulan = (tarifMap.dapur || 0) + (tarifMap.syahriah_pesantren || 0) + tarifSekolah;
+        if (santri.dapur === "Mutawasilin") {
+          // KHUSUS MUTAWASILIN: Hanya Syahriah Pesantren
+          totalWajibPerBulan = tarifMap.syahriah_pesantren || 0;
+        } else {
+          // SANTRI REGULER: Dapur + Pesantren + Sekolah
+          let tarifSekolah = 0;
+          const jenjang = (santri.jenjang || "").toLowerCase();
+          if (jenjang === "smk") tarifSekolah = tarifMap.syahriah_sekolah_smk || 0;
+          else if (jenjang === "takhosus") tarifSekolah = tarifMap.syahriah_sekolah_takhosus || 0;
+          else if (jenjang === "kuliah") tarifSekolah = tarifMap.syahriah_sekolah_kuliah || 0;
+          else tarifSekolah = tarifMap.syahriah_sekolah_smp || 0;
+
+          totalWajibPerBulan = (tarifMap.dapur || 0) + (tarifMap.syahriah_pesantren || 0) + tarifSekolah;
+        }
 
         for (let th = tahunWajib; th <= currentYear; th++) {
           const startBln = (th === tahunWajib) ? bulanWajib : 1;
@@ -117,6 +127,7 @@ export default function Home() {
           for (let bln = startBln; bln <= endBln; bln++) {
             const key = `${santri.id}-${bln}-${th}`;
             const sudahBayar = lunasMap.get(key) || 0;
+            // Jika pembayaran di bawah kewajiban seharusnya, hitung selisihnya sebagai tunggakan
             if (sudahBayar < totalWajibPerBulan) {
               calculatedTunggakan += (totalWajibPerBulan - sudahBayar);
             }
@@ -259,7 +270,6 @@ export default function Home() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
           
           <TabsContent value="dashboard" className="space-y-8 animate-in fade-in duration-500">
-            {/* GRID STATISTIK - Diatur Kolom Dinamis berdasarkan Role */}
             <div className={cn(
                 "grid gap-6",
                 isAdmin ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" : "grid-cols-1 sm:grid-cols-3"
@@ -268,7 +278,6 @@ export default function Home() {
               <StatCard title="Pemasukan" value={`Rp ${stats.totalPemasukan.toLocaleString("id-ID")}`} icon={<TrendingUp size={18}/>} color="green" sub="Total dana masuk" />
               <StatCard title="Pengeluaran" value={`Rp ${stats.totalPengeluaran.toLocaleString("id-ID")}`} icon={<TrendingDown size={18}/>} color="orange" sub="Total dana keluar" />
               
-              {/* Card Tunggakan Hanya Muncul untuk Administrator */}
               {isAdmin && (
                 <StatCard 
                     title="Total Tunggakan" 
@@ -281,7 +290,6 @@ export default function Home() {
             </div>
 
             <div className="bg-white p-6 rounded-2xl border border-emerald-50 shadow-sm">
-              {/* Komponen Overview juga menerima props isAdmin untuk filter tampilan dalam */}
               <DashboardOverview stats={stats} isAdmin={isAdmin} />
             </div>
           </TabsContent>

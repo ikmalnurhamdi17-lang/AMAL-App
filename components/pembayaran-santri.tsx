@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { useState, useEffect, useCallback, useMemo } from "react"
-import { Plus, Send, Search, ReceiptJapaneseYen, Pencil, Trash2, Printer, CalendarDays, Filter, User, Check } from "lucide-react"
+import { Plus, Send, Search, ReceiptJapaneseYen, Pencil, Trash2, Printer, CalendarDays, Filter, User, Check, Info } from "lucide-react"
 import { cn, simpanLog } from "@/lib/utils" 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -50,11 +50,9 @@ export default function PembayaranSantri({ onUpdate }: { onUpdate: () => void })
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   
-  // State Pencarian Santri di Form
   const [santriSearchQuery, setSantriSearchQuery] = useState("")
   const [selectedSantriObj, setSelectedSantriObj] = useState<Santri | null>(null)
 
-  // State Multi-Bulan
   const [selectedBulans, setSelectedBulans] = useState<number[]>([new Date().getMonth() + 1])
   const [formData, setFormData] = useState({
     santri_id: "",
@@ -65,7 +63,18 @@ export default function PembayaranSantri({ onUpdate }: { onUpdate: () => void })
     keterangan: "",
   })
 
-  // State Filter Tabel
+  // LOGIKA OTOMATIS MUTAWASILIN (MENGUNCI FORM)
+  useEffect(() => {
+    if (selectedSantriObj?.dapur === "Mutawasilin") {
+      setFormData(prev => ({
+        ...prev,
+        bayar_dapur: false,
+        bayar_syahriah_sekolah: false,
+        bayar_syahriah_pesantren: true
+      }));
+    }
+  }, [selectedSantriObj]);
+
   const [searchNama, setSearchNama] = useState("")
   const [filterBulan, setFilterBulan] = useState("all")
   const [filterTahun, setFilterTahun] = useState(new Date().getFullYear().toString())
@@ -85,7 +94,6 @@ export default function PembayaranSantri({ onUpdate }: { onUpdate: () => void })
     setTarif(tarifObj)
   }
 
-  // Memoized Filtered Santri untuk performa cepat saat mengetik
   const filteredSantriOptions = useMemo(() => {
     return santriList.filter(s => 
       s.nama.toLowerCase().includes(santriSearchQuery.toLowerCase()) ||
@@ -102,9 +110,7 @@ export default function PembayaranSantri({ onUpdate }: { onUpdate: () => void })
   const cetakKwitansi = async (p: any) => {
     const doc = new jsPDF({ format: [80, 150], unit: "mm" })
     const pageWidth = doc.internal.pageSize.getWidth()
-    
     try {
-      // 1. Header & Logo
       try {
         const imgData = await getBase64ImageFromURL("/logoo.png")
         doc.addImage(imgData, "PNG", 8, 6, 12, 12)
@@ -113,33 +119,23 @@ export default function PembayaranSantri({ onUpdate }: { onUpdate: () => void })
       } catch (e) {
         doc.setFontSize(10).setFont("helvetica", "bold").text("AL - HUDA TURALAK", pageWidth / 2, 10, { align: "center" })
       }
-
       doc.setLineWidth(0.5).line(8, 22, 72, 22)
-      
-      // 2. Info Santri
       doc.setFontSize(8).setFont("helvetica", "normal")
       doc.text(`Nama   : ${p.santri?.nama}`, 8, 30)
       doc.text(`Periode: ${BULAN_NAMES[p.bulan - 1]} ${p.tahun}`, 8, 35)
       doc.text(`Tanggal: ${new Date(p.tanggal_bayar).toLocaleDateString("id-ID")}`, 8, 40)
-
-      // 3. Tabel Rincian
       const body = []
       if (p.bayar_dapur > 0) body.push(["Dapur", `Rp ${p.bayar_dapur.toLocaleString()}`])
       if (p.bayar_syahriah_pesantren > 0) body.push(["Pesantren", `Rp ${p.bayar_syahriah_pesantren.toLocaleString()}`])
       if (p.bayar_syahriah_sekolah > 0) body.push(["Sekolah", `Rp ${p.bayar_syahriah_sekolah.toLocaleString()}`])
-
       autoTable(doc, {
         startY: 45, theme: 'plain', margin: { left: 8, right: 8 },
         styles: { fontSize: 8, cellPadding: 1 },
         body: body, columnStyles: { 1: { halign: 'right' } }
       })
-
-      // 4. Total Bayar
       const finalY = (doc as any).lastAutoTable.finalY + 2
       doc.setFont("helvetica", "bold").text("TOTAL:", 8, finalY + 5)
       doc.text(`Rp ${p.total_bayar.toLocaleString()}`, 72, finalY + 5, { align: "right" })
-
-      // 5. QR Code
       const qrSize = 25
       const qrX = (pageWidth / 2) - (qrSize / 2)
       const qrY = finalY + 10
@@ -147,15 +143,11 @@ export default function PembayaranSantri({ onUpdate }: { onUpdate: () => void })
       const qrBase64 = await QRCode.toDataURL(qrText, { margin: 1 })
       doc.addImage(qrBase64, "PNG", qrX, qrY, qrSize, qrSize)
 
-      // 6. Teks Tambahan (Italic & Center)
       const textYStart = qrY + qrSize + 5
       doc.setFont("helvetica", "italic").setFontSize(7)
-      
       doc.text("-- Scan Untuk Verifikasi Data --", pageWidth / 2, textYStart, { align: "center" })
       doc.text("-- Jazakumullah Khairan Katsiran --", pageWidth / 2, textYStart + 4, { align: "center" })
-      doc.text("-- Dokumen Sah AMAL-App --", pageWidth / 2, textYStart + 8, { align: "center" })
-
-      // Simpan File
+      doc.text("-- Dokumen Sah Digital --", pageWidth / 2, textYStart + 8, { align: "center" })
       doc.save(`Kwitansi_${p.santri?.nama.replace(/\s+/g, '_')}.pdf`)
     } catch (error) { 
       console.error(error)
@@ -171,42 +163,53 @@ export default function PembayaranSantri({ onUpdate }: { onUpdate: () => void })
     window.open(`https://wa.me/${fixedPhone}?text=${msg}`, "_blank")
   }
 
+  // LOGIKA PERHITUNGAN TUNGGAKAN & NOMINAL TRANSAKSI
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!formData.santri_id || selectedBulans.length === 0) return
 
     const supabase = getSupabase()
-    const santri = santriList.find((s) => s.id === formData.santri_id)
+    const santri = selectedSantriObj
     if (!santri) return
 
-    let tSekolah = 0
-    const j = santri.jenjang?.toLowerCase()
-    if (j === "smk") tSekolah = tarif.syahriah_sekolah_smk || 0
-    else if (j === "takhosus") tSekolah = tarif.syahriah_sekolah_takhosus || 0
-    else if (j === "kuliah") tSekolah = tarif.syahriah_sekolah_kuliah || 0
-    else tSekolah = tarif.syahriah_sekolah_smp || 0
+    const isMutawasilin = santri.dapur === "Mutawasilin"
 
-    const totalUnit = (formData.bayar_dapur ? (tarif.dapur || 0) : 0) + 
-                     (formData.bayar_syahriah_pesantren ? (tarif.syahriah_pesantren || 0) : 0) + 
-                     (formData.bayar_syahriah_sekolah ? tSekolah : 0)
+    // Tentukan nominal pesantren dari tab pengaturan tarif
+    const nominalSyahriahPesantren = tarif.syahriah_pesantren || 0
+
+    let tSekolah = 0
+    if (!isMutawasilin) {
+      const j = santri.jenjang?.toLowerCase()
+      if (j === "smk") tSekolah = tarif.syahriah_sekolah_smk || 0
+      else if (j === "takhosus") tSekolah = tarif.syahriah_sekolah_takhosus || 0
+      else if (j === "kuliah") tSekolah = tarif.syahriah_sekolah_kuliah || 0
+      else tSekolah = tarif.syahriah_sekolah_smp || 0
+    }
+
+    // PAKSA NOMINAL MENYESUAIKAN STATUS
+    const valDapur = (!isMutawasilin && formData.bayar_dapur) ? (tarif.dapur || 0) : 0
+    const valPesantren = formData.bayar_syahriah_pesantren ? nominalSyahriahPesantren : 0
+    const valSekolah = (!isMutawasilin && formData.bayar_syahriah_sekolah) ? tSekolah : 0
+
+    const totalBayarPerBulan = valDapur + valPesantren + valSekolah
 
     try {
       const batchData = selectedBulans.map(bulan => ({
         santri_id: formData.santri_id,
         bulan: bulan,
         tahun: formData.tahun,
-        bayar_dapur: formData.bayar_dapur ? (tarif.dapur || 0) : 0,
-        bayar_syahriah_pesantren: formData.bayar_syahriah_pesantren ? (tarif.syahriah_pesantren || 0) : 0,
-        bayar_syahriah_sekolah: formData.bayar_syahriah_sekolah ? tSekolah : 0,
-        total_bayar: totalUnit,
-        keterangan: formData.keterangan || "Input Kolektif",
+        bayar_dapur: valDapur,
+        bayar_syahriah_pesantren: valPesantren,
+        bayar_syahriah_sekolah: valSekolah,
+        total_bayar: totalBayarPerBulan,
+        keterangan: formData.keterangan || (isMutawasilin ? "Syahriah Mutawasilin" : "Input Kolektif"),
         tanggal_bayar: new Date().toISOString().split("T")[0],
       }))
 
       const { error } = await supabase.from("pembayaran").upsert(batchData, { onConflict: "santri_id,bulan,tahun" })
       if (error) throw error
 
-      Swal.fire({ icon: 'success', title: 'Berhasil', timer: 1000, showConfirmButton: false })
+      Swal.fire({ icon: 'success', title: 'Berhasil Disimpan', timer: 1000, showConfirmButton: false })
       setIsDialogOpen(false)
       loadData(); onUpdate()
       resetForm()
@@ -267,7 +270,6 @@ export default function PembayaranSantri({ onUpdate }: { onUpdate: () => void })
               <DialogHeader><DialogTitle>{editingId ? "Edit" : "Input"} Pembayaran</DialogTitle></DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4 pt-2">
                 
-                {/* SELECT SANTRI WITH SEARCH */}
                 <div className="space-y-2">
                   <Label>Cari & Pilih Santri</Label>
                   <div className="relative">
@@ -280,7 +282,6 @@ export default function PembayaranSantri({ onUpdate }: { onUpdate: () => void })
                     />
                   </div>
                   
-                  {/* Daftar Santri Scrollable */}
                   <div className="border rounded-lg max-h-40 overflow-y-auto bg-slate-50 shadow-inner p-1 space-y-1">
                     {filteredSantriOptions.length > 0 ? (
                       filteredSantriOptions.map((s) => (
@@ -289,7 +290,7 @@ export default function PembayaranSantri({ onUpdate }: { onUpdate: () => void })
                           onClick={() => {
                             setFormData({ ...formData, santri_id: s.id })
                             setSelectedSantriObj(s)
-                            setSantriSearchQuery(s.nama) // Isi input dengan nama yang dipilih
+                            setSantriSearchQuery(s.nama)
                           }}
                           className={cn(
                             "flex items-center justify-between px-3 py-2 rounded-md cursor-pointer text-xs transition-colors",
@@ -298,7 +299,9 @@ export default function PembayaranSantri({ onUpdate }: { onUpdate: () => void })
                         >
                           <div className="flex flex-col">
                             <span>{s.nama}</span>
-                            <span className={cn("text-[10px]", formData.santri_id === s.id ? "text-emerald-100" : "text-slate-400")}>NIS: {s.nis}</span>
+                            <span className={cn("text-[10px]", formData.santri_id === s.id ? "text-emerald-100" : "text-slate-400")}>
+                              NIS: {s.nis} | Dapur: {s.dapur || "N/A"}
+                            </span>
                           </div>
                           {formData.santri_id === s.id && <Check className="h-4 w-4" />}
                         </div>
@@ -308,9 +311,14 @@ export default function PembayaranSantri({ onUpdate }: { onUpdate: () => void })
                     )}
                   </div>
                   {selectedSantriObj && (
-                    <div className="p-2 bg-emerald-50 rounded border border-emerald-100 flex items-center gap-2">
-                        <User className="h-3 w-3 text-emerald-600" />
-                        <span className="text-[11px] font-bold text-emerald-800">Terpilih: {selectedSantriObj.nama} ({selectedSantriObj.jenjang})</span>
+                    <div className={cn(
+                      "p-2 rounded border flex items-center gap-2",
+                      selectedSantriObj.dapur === "Mutawasilin" ? "bg-amber-50 border-amber-200" : "bg-emerald-50 border-emerald-100"
+                    )}>
+                        <User className={cn("h-3 w-3", selectedSantriObj.dapur === "Mutawasilin" ? "text-amber-600" : "text-emerald-600")} />
+                        <span className={cn("text-[11px] font-bold", selectedSantriObj.dapur === "Mutawasilin" ? "text-amber-800" : "text-emerald-800")}>
+                          {selectedSantriObj.nama} {selectedSantriObj.dapur === "Mutawasilin" && "(Hanya Syahriah Pesantren)"}
+                        </span>
                     </div>
                   )}
                 </div>
@@ -334,12 +342,30 @@ export default function PembayaranSantri({ onUpdate }: { onUpdate: () => void })
                 </div>
 
                 <div className="p-3 bg-emerald-50 rounded-lg space-y-2 border">
-                  {["dapur", "syahriah_pesantren", "syahriah_sekolah"].map((f) => (
-                    <div key={f} className="flex items-center space-x-2">
-                      <Checkbox id={f} checked={(formData as any)[`bayar_${f}`]} onCheckedChange={(c) => setFormData(p => ({...p, [`bayar_${f}`]: !!c}))} />
-                      <Label htmlFor={f} className="capitalize text-xs cursor-pointer">{f.replace("_", " ")}</Label>
+                  {[
+                    { key: "dapur", label: "Dapur", disabled: selectedSantriObj?.dapur === "Mutawasilin" },
+                    { key: "syahriah_pesantren", label: "Syahriah Pesantren", disabled: false },
+                    { key: "syahriah_sekolah", label: "Syahriah Sekolah", disabled: selectedSantriObj?.dapur === "Mutawasilin" }
+                  ].map((item) => (
+                    <div key={item.key} className={cn("flex items-center space-x-2", item.disabled && "opacity-40 grayscale pointer-events-none")}>
+                      <Checkbox 
+                        id={item.key} 
+                        checked={(formData as any)[`bayar_${item.key}`]} 
+                        onCheckedChange={(c) => setFormData(p => ({...p, [`bayar_${item.key}`]: !!c}))}
+                        disabled={item.disabled}
+                      />
+                      <Label htmlFor={item.key} className="capitalize text-xs cursor-pointer">
+                        {item.label} {item.disabled && "(N/A)"}
+                      </Label>
                     </div>
                   ))}
+                  
+                  {selectedSantriObj?.dapur === "Mutawasilin" && (
+                    <div className="mt-2 p-2 bg-amber-100 rounded text-[10px] text-amber-800 flex items-center gap-1">
+                      <Info className="w-3 h-3" />
+                      <span>Otomatis diset sesuai tarif Syahriah Pesantren.</span>
+                    </div>
+                  )}
                 </div>
                 <Textarea placeholder="Keterangan..." value={formData.keterangan} onChange={(e) => setFormData(p => ({...p, keterangan: e.target.value}))} />
                 <Button type="submit" className="w-full bg-emerald-600 font-bold shadow-lg py-6 text-lg">Simpan Transaksi</Button>
@@ -362,10 +388,10 @@ export default function PembayaranSantri({ onUpdate }: { onUpdate: () => void })
             <Label className="text-[10px] uppercase font-bold text-emerald-700">Filter Bulan</Label>
             <Select value={filterBulan} onValueChange={setFilterBulan}>
               <SelectTrigger className="h-9 text-xs">
-                <SelectValue placeholder="Semua Bulan" />
+                <SelectValue placeholder="Semua" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Semua Bulan</SelectItem>
+                <SelectItem value="all">Semua</SelectItem>
                 {BULAN_NAMES.map((name, idx) => (
                   <SelectItem key={idx} value={(idx + 1).toString()}>{name}</SelectItem>
                 ))}
@@ -380,7 +406,7 @@ export default function PembayaranSantri({ onUpdate }: { onUpdate: () => void })
                 <SelectValue placeholder="Pilih Tahun" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Semua Tahun</SelectItem>
+                <SelectItem value="all">Semua</SelectItem>
                 {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
                   <SelectItem key={y} value={y.toString()}>{y}</SelectItem>
                 ))}
@@ -413,7 +439,10 @@ export default function PembayaranSantri({ onUpdate }: { onUpdate: () => void })
                   <TableRow key={p.id} className="hover:bg-emerald-50/30 transition-colors border-b border-emerald-50">
                     <TableCell className="py-3">
                       <div className="font-bold text-emerald-950">{p.santri?.nama}</div>
-                      <div className="text-[10px] text-slate-400">{new Date(p.tanggal_bayar).toLocaleDateString("id-ID")}</div>
+                      <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                        {new Date(p.tanggal_bayar).toLocaleDateString("id-ID")}
+                        {p.santri?.dapur === "Mutawasilin" && <span className="bg-amber-100 text-amber-700 px-1 rounded-sm text-[9px] font-bold">MUTAWASILIN</span>}
+                      </div>
                     </TableCell>
                     <TableCell className="text-xs font-medium text-emerald-800">
                       {BULAN_NAMES[p.bulan-1]} {p.tahun}
@@ -434,13 +463,6 @@ export default function PembayaranSantri({ onUpdate }: { onUpdate: () => void })
                     </TableCell>
                   </TableRow>
                 ))}
-                {filteredPembayaran.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center py-20 text-slate-400 italic">
-                      Data pembayaran tidak ditemukan.
-                    </TableCell>
-                  </TableRow>
-                )}
               </TableBody>
             </Table>
           </div>

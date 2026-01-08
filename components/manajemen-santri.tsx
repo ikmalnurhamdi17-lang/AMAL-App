@@ -19,7 +19,8 @@ const DAFTAR_DAPUR = [
   "KH Ilal Sabilu Rosyad",
   "K Dindin Ahmad Syahidin",
   "K Ade Abbas Aminulloh",
-  "K Asep Toni"
+  "K Asep Toni",
+  "Mutawasilin"
 ]
 
 const BULAN_LIST = [
@@ -38,8 +39,6 @@ export default function ManajemenSantri({ onUpdate }: ManajemenSantriProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingSantri, setEditingSantri] = useState<any | null>(null)
-
-  // State untuk kontrol UI awal tunggakan manual
   const [mulaiTunggakanManual, setMulaiTunggakanManual] = useState(false)
 
   const [formData, setFormData] = useState({
@@ -50,7 +49,7 @@ export default function ManajemenSantri({ onUpdate }: ManajemenSantriProps) {
     nama_wali: "",
     no_hp_wali: "",
     tanggal_masuk: new Date().toISOString().split("T")[0],
-    tanggal_mulai_tagihan: "", // Format YYYY-MM-DD
+    tanggal_mulai_tagihan: "", 
     status: "aktif" as "aktif" | "nonaktif",
     dapur: "", 
   })
@@ -69,7 +68,6 @@ export default function ManajemenSantri({ onUpdate }: ManajemenSantriProps) {
     setSantriList(data || [])
   }
 
-  // Fungsi untuk memformat tanggal mulai tagihan dari pilihan bulan/tahun
   const updateTagihanDate = (type: 'month' | 'year', value: string) => {
     const sekarang = new Date();
     let [y, m] = (formData.tanggal_mulai_tagihan || `${sekarang.getFullYear()}-${String(sekarang.getMonth() + 1).padStart(2, '0')}-01`).split('-');
@@ -84,7 +82,6 @@ export default function ManajemenSantri({ onUpdate }: ManajemenSantriProps) {
     e.preventDefault()
     const supabase = getSupabase()
 
-    // Logika Cut-off: Jika manual tidak dicentang, kirim NULL ke database
     const dataToSave = {
       ...formData,
       tanggal_mulai_tagihan: mulaiTunggakanManual ? formData.tanggal_mulai_tagihan : null
@@ -115,15 +112,15 @@ export default function ManajemenSantri({ onUpdate }: ManajemenSantriProps) {
     setEditingSantri(santri)
     setMulaiTunggakanManual(!!santri.tanggal_mulai_tagihan)
     setFormData({
-      nama: santri.nama,
-      nis: santri.nis,
-      jenjang: santri.jenjang,
-      kelas: santri.kelas,
-      nama_wali: santri.nama_wali,
-      no_hp_wali: santri.no_hp_wali,
-      tanggal_masuk: santri.tanggal_masuk,
+      nama: santri.nama || "",
+      nis: santri.nis || "",
+      jenjang: santri.jenjang || "SMP",
+      kelas: santri.kelas || "",
+      nama_wali: santri.nama_wali || "",
+      no_hp_wali: santri.no_hp_wali || "",
+      tanggal_masuk: santri.tanggal_masuk || new Date().toISOString().split("T")[0],
       tanggal_mulai_tagihan: santri.tanggal_mulai_tagihan || "",
-      status: santri.status,
+      status: santri.status || "aktif",
       dapur: santri.dapur || "",
     })
     setIsDialogOpen(true)
@@ -142,9 +139,9 @@ export default function ManajemenSantri({ onUpdate }: ManajemenSantriProps) {
 
   const filteredSantri = santriList.filter(
     (s) =>
-      s.nama.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.nis.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (s.dapur && s.dapur.toLowerCase().includes(searchTerm.toLowerCase()))
+      (s.nama?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+      (s.nis?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+      (s.dapur?.toLowerCase() || "").includes(searchTerm.toLowerCase())
   )
 
   return (
@@ -173,7 +170,11 @@ export default function ManajemenSantri({ onUpdate }: ManajemenSantriProps) {
                     <Label className="text-emerald-700 font-bold">Pengelola Dapur</Label>
                     <Select value={formData.dapur} onValueChange={(v) => setFormData({ ...formData, dapur: v })} required>
                       <SelectTrigger><SelectValue placeholder="Pilih Dapur" /></SelectTrigger>
-                      <SelectContent>{DAFTAR_DAPUR.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
+                      <SelectContent>
+                        {DAFTAR_DAPUR.map(d => (
+                          <SelectItem key={d} value={d}>{d}</SelectItem>
+                        ))}
+                      </SelectContent>
                     </Select>
                   </div>
 
@@ -189,7 +190,6 @@ export default function ManajemenSantri({ onUpdate }: ManajemenSantriProps) {
                   <div className="space-y-2"><Label>Tanggal Masuk</Label><Input type="date" value={formData.tanggal_masuk} onChange={(e) => setFormData({ ...formData, tanggal_masuk: e.target.value })} required /></div>
                 </div>
 
-                {/* KONFIGURASI TUNGGAKAN AWAL (FITUR BARU) */}
                 <div className="p-4 rounded-xl bg-emerald-50/50 border border-emerald-100 space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -300,8 +300,8 @@ export default function ManajemenSantri({ onUpdate }: ManajemenSantriProps) {
                         <span className="text-[10px] text-slate-400 italic">Sesuai Tgl Masuk</span>
                       )}
                     </TableCell>
-                    <TableCell className="py-3">
-                      <span className="text-[10px] font-bold text-emerald-700 bg-white px-2 py-1 rounded border border-emerald-100 uppercase shadow-sm">{s.dapur || "-"}</span>
+                    <TableCell className="py-3 text-xs font-bold text-emerald-700 uppercase">
+                      {s.dapur || "-"}
                     </TableCell>
                     <TableCell className="text-xs py-3">{s.jenjang} - {s.kelas}</TableCell>
                     <TableCell className="py-3">
@@ -322,7 +322,6 @@ export default function ManajemenSantri({ onUpdate }: ManajemenSantriProps) {
             </Table>
           </div>
         </div>
-        <div className="mt-4 text-[10px] text-slate-400 italic text-right">* Gunakan scroll untuk navigasi tabel</div>
       </CardContent>
     </Card>
   )

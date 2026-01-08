@@ -1,12 +1,12 @@
 "use client"
 
-import { cn } from "@/lib/utils" // <--- TAMBAHKAN BARIS INI
+import { cn } from "@/lib/utils"
 import { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Send, AlertCircle, Loader2, Search, Calendar, Filter } from "lucide-react"
+import { Send, AlertCircle, Loader2, Search, Calendar } from "lucide-react"
 import { getSupabase } from "@/lib/supabase"
 import type { Santri } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
@@ -35,8 +35,8 @@ interface TunggakanDetail {
 export default function TunggakanSantri() {
   const [tunggakanList, setTunggakanList] = useState<TunggakanDetail[]>([])
   const [tahunFilter, setTahunFilter] = useState(new Date().getFullYear())
-  const [bulanFilter, setBulanFilter] = useState<string>("all") // Filter Bulan Baru
-  const [searchTerm, setSearchTerm] = useState("") // Search Nama Baru
+  const [bulanFilter, setBulanFilter] = useState<string>("all")
+  const [searchTerm, setSearchTerm] = useState("")
   const [loading, setLoading] = useState(false)
   const [tahunOptions, setTahunOptions] = useState<number[]>([])
 
@@ -48,11 +48,12 @@ export default function TunggakanSantri() {
     setLoading(true)
     const supabase = getSupabase()
 
+    // Ambil data santri termasuk kolom dapur
     const { data: santriList } = await supabase.from("santri").select("*").eq("status", "aktif")
     const { data: tarifData } = await supabase.from("tarif").select("*")
     const { data: allPembayaran } = await supabase.from("pembayaran").select("*").eq("tahun", tahunFilter)
 
-    if (santriList) {
+    if (santriList && santriList.length > 0) {
       const tahunMasukTerkecil = Math.min(...santriList.map(s => {
         const t1 = new Date(s.tanggal_masuk).getFullYear();
         const t2 = s.tanggal_mulai_tagihan ? new Date(s.tanggal_mulai_tagihan).getFullYear() : t1;
@@ -90,17 +91,25 @@ export default function TunggakanSantri() {
         for (let bulan = startBulanLoop; bulan <= endBulanLoop; bulan++) {
           const pembayaran = allPembayaran?.find(p => p.santri_id === santri.id && p.bulan === bulan);
 
-          let tarifSekolah = 0;
-          const jenjang = santri.jenjang?.toLowerCase();
-          if (jenjang === "smk") tarifSekolah = tarif.syahriah_sekolah_smk || 0;
-          else if (jenjang === "takhosus") tarifSekolah = tarif.syahriah_sekolah_takhosus || 0;
-          else if (jenjang === "kuliah") tarifSekolah = tarif.syahriah_sekolah_kuliah || 0;
-          else tarifSekolah = tarif.syahriah_sekolah_smp || 0;
+          // --- LOGIKA PERHITUNGAN KHUSUS MUTAWASILIN ---
+          let harusDapur = 0;
+          let harusPesantren = tarif.syahriah_pesantren || 0;
+          let harusSekolah = 0;
 
-          const harusBayar = (tarif.dapur || 0) + (tarif.syahriah_pesantren || 0) + tarifSekolah;
-          const sudahBayar = (pembayaran?.bayar_dapur || 0) + (pembayaran?.bayar_syahriah_pesantren || 0) + (pembayaran?.bayar_syahriah_sekolah || 0);
+          if (santri.dapur !== "Mutawasilin") {
+            // Jika bukan Mutawasilin, baru hitung tarif dapur dan sekolah
+            harusDapur = tarif.dapur || 0;
+            const jenjang = (santri.jenjang || "").toLowerCase();
+            if (jenjang === "smk") harusSekolah = tarif.syahriah_sekolah_smk || 0;
+            else if (jenjang === "takhosus") harusSekolah = tarif.syahriah_sekolah_takhosus || 0;
+            else if (jenjang === "kuliah") harusSekolah = tarif.syahriah_sekolah_kuliah || 0;
+            else harusSekolah = tarif.syahriah_sekolah_smp || 0;
+          }
 
-          const sisaTagihan = harusBayar - sudahBayar;
+          const totalHarusBayar = harusDapur + harusPesantren + harusSekolah;
+          const sudahBayar = (pembayaran?.total_bayar || 0);
+
+          const sisaTagihan = totalHarusBayar - sudahBayar;
 
           if (sisaTagihan > 0) {
             tunggakanSantri.tunggakan.push({
@@ -108,9 +117,9 @@ export default function TunggakanSantri() {
               tahun: tahunFilter,
               jumlah: sisaTagihan,
               rincian: {
-                dapur: Math.max(0, (tarif.dapur || 0) - (pembayaran?.bayar_dapur || 0)),
-                syahriah_pesantren: Math.max(0, (tarif.syahriah_pesantren || 0) - (pembayaran?.bayar_syahriah_pesantren || 0)),
-                syahriah_sekolah: Math.max(0, tarifSekolah - (pembayaran?.bayar_syahriah_sekolah || 0)),
+                dapur: Math.max(0, harusDapur - (pembayaran?.bayar_dapur || 0)),
+                syahriah_pesantren: Math.max(0, harusPesantren - (pembayaran?.bayar_syahriah_pesantren || 0)),
+                syahriah_sekolah: Math.max(0, harusSekolah - (pembayaran?.bayar_syahriah_sekolah || 0)),
               }
             });
             tunggakanSantri.total += sisaTagihan;
@@ -127,10 +136,9 @@ export default function TunggakanSantri() {
     setLoading(false);
   }
 
-  // LOGIKA FILTER CEPAT (Client-side)
   const filteredTunggakan = useMemo(() => {
     return tunggakanList.filter((item) => {
-      const matchSearch = item.santri.nama.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchSearch = (item.santri.nama || "").toLowerCase().includes(searchTerm.toLowerCase());
       const matchBulan = bulanFilter === "all" 
         ? true 
         : item.tunggakan.some(t => t.bulan === parseInt(bulanFilter));
@@ -144,8 +152,8 @@ export default function TunggakanSantri() {
     phoneNumber = phoneNumber.replace(/\D/g, "")
     if (phoneNumber.startsWith("0")) phoneNumber = "62" + phoneNumber.substring(1)
 
-    const items = detail.tunggakan.map(t => `• *${BULAN_NAMES[t.bulan - 1]}*: Rp ${t.jumlah.toLocaleString()}`).join("\n")
-    const message = `*TAGIHAN SYAHRIAH*\n*${detail.santri.nama}*\n\nTotal Tunggakan: *Rp ${detail.total.toLocaleString()}*\n\nRincian:\n${items}\n\nJazakumullah.`
+    const items = detail.tunggakan.map(t => `• *${BULAN_NAMES[t.bulan - 1]}*: Rp ${t.jumlah.toLocaleString("id-ID")}`).join("\n")
+    const message = `*TAGIHAN SYAHRIAH*\n*${detail.santri.nama}*\n\nTotal Tunggakan: *Rp ${detail.total.toLocaleString("id-ID")}*\n\nRincian:\n${items}\n\nJazakumullah.`
     window.open(`https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`, "_blank")
   }
 
@@ -161,7 +169,6 @@ export default function TunggakanSantri() {
           </div>
           
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-            {/* Search Nama */}
             <div className="relative flex-1 md:w-48">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
               <Input 
@@ -172,11 +179,10 @@ export default function TunggakanSantri() {
               />
             </div>
 
-            {/* Filter Bulan */}
             <Select value={bulanFilter} onValueChange={setBulanFilter}>
               <SelectTrigger className="w-[130px] h-9 text-xs border-emerald-100 bg-white">
-                <Calendar className="w-3.5 h-3.5 mr-2 text-emerald-600" /> {/* Gunakan Calendar */}
-              <SelectValue placeholder="Bulan" />
+                <Calendar className="w-3.5 h-3.5 mr-2 text-emerald-600" />
+                <SelectValue placeholder="Bulan" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Semua Bulan</SelectItem>
@@ -186,7 +192,6 @@ export default function TunggakanSantri() {
               </SelectContent>
             </Select>
 
-            {/* Filter Tahun */}
             <Select value={tahunFilter.toString()} onValueChange={(value) => setTahunFilter(Number(value))}>
               <SelectTrigger className="w-[100px] h-9 text-xs border-emerald-100 bg-white font-bold">
                 <SelectValue />
@@ -212,7 +217,6 @@ export default function TunggakanSantri() {
             Tidak ada data tunggakan ditemukan
           </div>
         ) : (
-          /* TABEL DENGAN SCROLL & STICKY HEADER */
           <div className="relative rounded-xl border border-emerald-100 overflow-hidden bg-white shadow-sm">
             <div className="overflow-y-auto max-h-[500px] no-scrollbar">
               <Table className="relative">
@@ -228,7 +232,12 @@ export default function TunggakanSantri() {
                   {filteredTunggakan.map((detail) => (
                     <TableRow key={detail.santri.id} className="hover:bg-red-50/20 transition-colors border-b border-emerald-50">
                       <TableCell className="py-4">
-                        <div className="font-bold text-emerald-950">{detail.santri.nama}</div>
+                        <div className="font-bold text-emerald-950 flex items-center gap-2">
+                          {detail.santri.nama}
+                          {detail.santri.dapur === "Mutawasilin" && (
+                            <Badge variant="outline" className="text-[8px] bg-amber-50 text-amber-600 border-amber-200">Mutawasilin</Badge>
+                          )}
+                        </div>
                         <div className="text-[10px] text-slate-400 uppercase font-medium">{detail.santri.jenjang} - {detail.santri.kelas}</div>
                       </TableCell>
                       <TableCell>
