@@ -8,6 +8,7 @@ export interface Santri {
   no_hp_wali: string
   tanggal_masuk: string
   status: "aktif" | "nonaktif"
+  dapur?: string;
 }
 
 export interface Pembayaran {

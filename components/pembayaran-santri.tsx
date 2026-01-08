@@ -65,7 +65,7 @@ export default function PembayaranSantri({ onUpdate }: { onUpdate: () => void })
 
   // LOGIKA OTOMATIS MUTAWASILIN (MENGUNCI FORM)
   useEffect(() => {
-    if (selectedSantriObj?.dapur === "Mutawasilin") {
+    if ((selectedSantriObj as any)?.dapur === "Mutawasilin") {
       setFormData(prev => ({
         ...prev,
         bayar_dapur: false,
