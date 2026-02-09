@@ -136,7 +136,7 @@ export default function LoginPage() {
         </form>
 
         <p className="text-xs text-gray-500 mt-6 text-center italic">
-          © 2025 Pondok Pesantren Al Huda Turalak
+          © 2026 Pondok Pesantren Al Huda Turalak
         </p>
       </div>
     </div>
